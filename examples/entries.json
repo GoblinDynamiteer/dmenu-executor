@@ -1,0 +1,8 @@
+{
+    "entries": [
+        {
+            "type": "start_app",
+            "executable": "okular"
+        }
+    ]
+}
