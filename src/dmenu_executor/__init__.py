@@ -4,6 +4,8 @@ import argparse
 import logging
 from pathlib import Path
 
+from dmenu_executor.menu import Dmenu
+
 __arg_dest_level = "logging_level"
 __arg_dest_formatter = "logging_formatter"
 __arg_default_level = "WARNING"
@@ -43,4 +45,5 @@ def get_args() -> argparse.Namespace:
 def main():
     args = get_args()
     setup_logging(args=args)
-    print("Hello World")
+    _menu = Dmenu.create_from_entry_file(args.entry_file)
+    _menu.execute()
