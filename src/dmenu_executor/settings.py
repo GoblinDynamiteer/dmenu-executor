@@ -13,6 +13,7 @@ class Settings:
     terminal: str = "gnome-terminal"
     shell: str = "bash"
     shell_command_arg: str = "-c"
+    prompt: str | None = None
 
     @property
     def terminal_shell_start_cmd(self) -> str:
