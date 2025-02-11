@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from json import JSONDecoder, JSONDecodeError
 from pathlib import Path
 from typing import Self
@@ -25,7 +27,7 @@ class Dmenu:
     def execute(self) -> None:
         if not self._entries:
             raise ValueError("no entries added")
-        ret = self._dmenu.show({e.text for e in self._entries},
+        ret = self._dmenu.show(sorted({e.text for e in self._entries}),
                                background=self.settings.color_bar_background,
                                foreground=self.settings.color_selected_foreground,
                                background_selected=self.settings.color_selected_background,
@@ -41,21 +43,34 @@ class Dmenu:
         raise RuntimeError(f"could not find entry for execution: {ret}")
 
     @classmethod
-    def create_from_entry_file(cls, file_path: Path) -> Self:
-        assert file_path.is_file(), f"file does not exist: {file_path}"
+    def create_menu_with_errors(cls, errors: list[str] | str) -> Dmenu:
+        menu = cls(Settings(prompt=f"Errors:",
+                            color_selected_foreground="black",
+                            color_selected_background="red",
+                            color_bar_background="red"))
+        if isinstance(errors, str):
+            errors = [errors]
+        for error in errors:
+            menu.add_entry(EntryError(error))
+        return menu
+
+    @classmethod
+    def create_from_entry_file(cls, file_path: Path) -> Dmenu:
+        if not file_path.is_file():
+            return Dmenu.create_menu_with_errors(f"file does not exist: {file_path}")
         try:
             data = json.loads(file_path.read_text())
         except JSONDecodeError as json_error:
-            menu = cls(Settings(prompt=f"Errors:",
-                                color_selected_foreground="black",
-                                color_selected_background="red",
-                                color_bar_background="red"))
-            menu.add_entry(EntryError(f"Failed to decode {file_path}: {json_error}"))
-            return menu
+            return Dmenu.create_menu_with_errors(
+                f"Failed to decode {file_path}: {json_error}")
         if "settings" in data:
             menu = cls(Settings.from_dict(data["settings"]))
         else:
             menu = cls()
         for entry in data["entries"]:
-            menu.add_entry(create_entry_from_dict(entry))
+            try:
+                menu.add_entry(create_entry_from_dict(entry))
+            except (ValueError, TypeError, AssertionError) as error:
+                return Dmenu.create_menu_with_errors(
+                    f"could not generate entries: {error}")
         return menu
