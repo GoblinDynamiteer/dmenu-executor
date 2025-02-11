@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from json import JSONDecoder, JSONDecodeError
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Self
 import json
 
 import dmenu
@@ -28,6 +27,7 @@ class Dmenu:
         if not self._entries:
             raise ValueError("no entries added")
         ret = self._dmenu.show(sorted({e.text for e in self._entries}),
+                               case_insensitive=self.settings.case_insensitive,
                                background=self.settings.color_bar_background,
                                foreground=self.settings.color_selected_foreground,
                                background_selected=self.settings.color_selected_background,
