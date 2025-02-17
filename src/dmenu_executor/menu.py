@@ -10,6 +10,7 @@ from dmenu_executor.entry import Entry, create_entry_from_dict, EntryError
 from dmenu_executor.settings import Settings
 
 
+
 class Dmenu:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or Settings()
