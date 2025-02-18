@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
@@ -12,6 +11,7 @@ import concurrent.futures
 from dmenu_executor.i3.utils import run_exec, select_workspace
 from dmenu_executor.settings import Settings
 
+WS_LEN = 200
 
 class EntryType(StrEnum):
     StartApplication = "start_app"
@@ -29,11 +29,16 @@ class Key(StrEnum):
     UseTerminal = "use_terminal"
     WebBrowserName = "browser"
     Workspace = "workspace"
+    WorkspaceInLabel = "include_workspace_in_label"
 
 
 class Entry(ABC):
-    def __init__(self, text, workspace: str = ""):
-        self.text = text
+    def __init__(self, text, workspace: str = "", add_workspace_to_label: bool = False):
+        if add_workspace_to_label and workspace:
+            _suffix = f" | ws: {workspace}"
+            self.text = f"{text}".ljust(WS_LEN, " ") + _suffix
+        else:
+            self.text = text
         self.settings: Settings | None = None
         self._workspace = workspace
 
@@ -59,14 +64,18 @@ class EntryStartApplication(Entry):
                  use_terminal: bool = False,
                  args: list[str] | None = None,
                  label: str = "",
+                 add_workspace_to_label: bool = False,
                  workspace: str = ""):
         self._app = app
         self._args = args
         self._use_terminal = use_terminal
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug(f"{app=}, {use_terminal=}, {args=}")
-        Entry.__init__(self, f"[app] {label or self._app}",
-                       workspace=workspace)
+        Entry.__init__(self,
+                       f"[app] {label or self._app}",
+                       workspace=workspace,
+                       add_workspace_to_label=add_workspace_to_label
+                       )
 
     @classmethod
     def from_dict(cls, data: dict) -> EntryStartApplication:
@@ -83,6 +92,7 @@ class EntryStartApplication(Entry):
                    use_terminal=use_terminal,
                    args=args,
                    label=label,
+                   add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
                    workspace=workspace)
 
     def _cmd_with_args(self) -> str:
@@ -105,6 +115,7 @@ class EntryOpenUrl(Entry):
     def __init__(self,
                  url: str,
                  include_url_in_label: bool = False,
+                 add_workspace_to_label: bool = False,
                  use_browser_name: str = "",
                  label: str = "",
                  workspace: str = ""):
@@ -120,7 +131,10 @@ class EntryOpenUrl(Entry):
             _label = label
         else:
             _label = url
-        Entry.__init__(self, f"[web] {_label}", workspace=workspace)
+        Entry.__init__(self,
+                       f"[web] {_label}",
+                       workspace=workspace,
+                       add_workspace_to_label=add_workspace_to_label)
 
     def execute(self) -> None:
         if self._browser == "firefox":
@@ -143,6 +157,7 @@ class EntryOpenUrl(Entry):
             url=_url,
             use_browser_name=data.get(Key.WebBrowserName, ""),
             label=data.get(Key.Label, ""),
+            add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
             include_url_in_label=data.get(Key.LabelSuffixUrl, False),
             workspace=data.get(Key.Workspace, "")
         )
@@ -153,6 +168,7 @@ class EntryOpenPdf(Entry):
                  pdf_path: Path,
                  executable: str,
                  workspace: str = "",
+                 add_workspace_to_label: bool = False,
                  nfo: str = ""):
 
         _loc = pdf_path.parent.relative_to(Path.home())
@@ -162,7 +178,10 @@ class EntryOpenPdf(Entry):
             _label = f"{pdf_path.name} | {_loc}"
         self._path = pdf_path
         self._executable = executable
-        Entry.__init__(self, _label, workspace=workspace)
+        Entry.__init__(self,
+                       _label,
+                       workspace=workspace,
+                       add_workspace_to_label=add_workspace_to_label)
 
     def execute(self) -> None:
         self.select_workspace()
