@@ -7,19 +7,26 @@ from pathlib import Path
 import time
 
 import concurrent.futures
+from typing import Union
+
+from i3man.utils import move_workspaces_to_default_monitor
 
 from dmenu_executor.i3.utils import run_exec, select_workspace
 from dmenu_executor.settings import Settings
 
 WS_LEN = 200
 
+
 class EntryType(StrEnum):
-    StartApplication = "start_app"
-    OpenUrl = "open_web"
+    I3Command = "i3_command"
     OpenPdf = "open_pdf"
+    OpenUrl = "open_web"
+    StartApplication = "start_app"
 
 
 class Key(StrEnum):
+    Command = "command"
+    Data = "data"
     EntryType = "type"
     Executable = "executable"
     ExecutableArguments = "executable_args"
@@ -30,6 +37,10 @@ class Key(StrEnum):
     WebBrowserName = "browser"
     Workspace = "workspace"
     WorkspaceInLabel = "include_workspace_in_label"
+
+
+class I3Command(StrEnum):
+    MoveWorkspaces = "move_workspaces"
 
 
 class Entry(ABC):
@@ -217,6 +228,49 @@ class EntryOpenPdf(Entry):
         return entries
 
 
+class I3CommandEntry(Entry):
+    def __init__(self,
+                 command: I3Command,
+                 data: dict | None = None,
+                 label: str = ""
+                 ):
+        if label:
+            _label = label
+        else:
+            _label = command
+
+        if command == I3Command.MoveWorkspaces:
+            if not data:
+                raise ValueError(f"Need data set for {command=}")
+            for k, v in data.items():
+                assert isinstance(k, str), f"malformed data, expected key {k} to be str"
+                assert isinstance(v, str), f"malformed data, expected val {v} to be str"
+
+        self._data = data
+        self._command = command
+
+        Entry.__init__(self, text=f"[i3] {_label}")
+
+    def execute(self) -> None:
+        if self._command == I3Command.MoveWorkspaces:
+            move_workspaces_to_default_monitor(defaults=self._data)
+            return
+        raise ValueError(f"cannot process command: {self._command}")
+
+    @classmethod
+    def from_dict(cls, data: dict) -> I3CommandEntry:
+        assert data.get(Key.EntryType, None) == EntryType.I3Command
+        _command = data.get(Key.Command, "")
+        if not _command:
+            raise ValueError(f"command missing from entry: {data}")
+        _command = I3Command(_command)
+        return cls(
+            command=_command,
+            label=data.get(Key.Label, ""),
+            data=data.get(Key.Data, None)
+        )
+
+
 class EntryOpenPdfSubMenu(Entry):
     def __init__(self,
                  search_paths: list[str],
@@ -257,8 +311,9 @@ class EntryOpenPdfSubMenu(Entry):
             executable=data.get(Key.Executable, "")
         )
 
+EntriesType = Union[EntryStartApplication, EntryOpenUrl, EntryOpenPdfSubMenu, I3CommandEntry]
 
-def create_entry_from_dict(data: dict[str, any]) -> EntryStartApplication | EntryOpenUrl | EntryOpenPdfSubMenu:
+def create_entry_from_dict(data: dict[str, any]) -> EntriesType:
     _type = data.get(Key.EntryType)
     if not _type:
         raise TypeError(f"cannot create Entry from data: {data}, missing 'type'")
@@ -268,4 +323,6 @@ def create_entry_from_dict(data: dict[str, any]) -> EntryStartApplication | Entr
         return EntryOpenUrl.from_dict(data)
     if _type == EntryType.OpenPdf:
         return EntryOpenPdfSubMenu.from_dict(data)
+    if _type == EntryType.I3Command:
+        return I3CommandEntry.from_dict(data)
     raise TypeError(f"cannot create Entry from data: {data}, unknown type: {_type}")
