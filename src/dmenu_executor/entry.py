@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
@@ -21,6 +22,7 @@ class EntryType(StrEnum):
     I3Command = "i3_command"
     OpenPdf = "open_pdf"
     OpenUrl = "open_web"
+    ShowUrlList = "web_list"
     StartApplication = "start_app"
 
 
@@ -41,6 +43,20 @@ class Key(StrEnum):
 
 class I3Command(StrEnum):
     MoveWorkspaces = "move_workspaces"
+
+
+@dataclasses.dataclass
+class UrlEntry:
+    url: str
+    label: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict) -> UrlEntry:
+        if not (_url := data.get("url")):
+            raise TypeError(f"cannot create UrlEntry from data: {data}, missing 'url'")
+        if not (_label := data.get(Key.Label)):
+            _label = data.get("label", "")
+        return cls(url=_url, label=_label)
 
 
 class Entry(ABC):
@@ -196,7 +212,7 @@ class EntryOpenPdf(Entry):
 
     def execute(self) -> None:
         self.select_workspace()
-        run_exec(f"{self._executable} {self._path}")
+        run_exec(f"{self._executable} \"{self._path}\"")
 
     @classmethod
     def build_entries(cls,
@@ -311,7 +327,61 @@ class EntryOpenPdfSubMenu(Entry):
             executable=data.get(Key.Executable, "")
         )
 
-EntriesType = Union[EntryStartApplication, EntryOpenUrl, EntryOpenPdfSubMenu, I3CommandEntry]
+
+class EntryOpenUrlSubMenu(Entry):
+    def __init__(self,
+                 urls: list[UrlEntry],
+                 label: str = "",
+                 include_url_in_label: bool = False,
+                 add_workspace_to_label: bool = False,
+                 use_browser_name: str = "",
+                 workspace: str = ""):
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self._entries = []
+        for url_entry in urls:
+            self._entries.append(
+                EntryOpenUrl(
+                    url=url_entry.url,
+                    label=url_entry.label,
+                    include_url_in_label=include_url_in_label,
+                    add_workspace_to_label=add_workspace_to_label,
+                    use_browser_name=use_browser_name,
+                    workspace=workspace
+                )
+            )
+        Entry.__init__(self, f"[web] {label or 'Open URL'}")
+
+    def execute(self) -> None:
+        from dmenu_executor import Dmenu
+
+        dmenu = Dmenu()
+        dmenu.settings.prompt = f"Open URL"
+        for entry in self._entries:
+            dmenu.add_entry(entry)
+        dmenu.execute()
+
+    @classmethod
+    def from_dict(cls, data: dict) -> EntryOpenUrlSubMenu:
+        assert data.get(Key.EntryType, None) == EntryType.ShowUrlList
+        if not (_urls := data.get("urls")):
+            raise f"Missing 'urls' key in data {data}"
+        entries = [UrlEntry.from_dict(u) for u in _urls]
+        return cls(
+            urls=entries,
+            label=data.get(Key.Label),
+            include_url_in_label=data.get(Key.LabelSuffixUrl, False),
+            add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
+            use_browser_name=data.get(Key.WebBrowserName, ""),
+            workspace=data.get(Key.Workspace, "")
+        )
+
+
+EntriesType = Union[EntryStartApplication,
+EntryOpenUrl,
+EntryOpenPdfSubMenu,
+I3CommandEntry,
+EntryOpenUrlSubMenu]
+
 
 def create_entry_from_dict(data: dict[str, any]) -> EntriesType:
     _type = data.get(Key.EntryType)
@@ -321,6 +391,8 @@ def create_entry_from_dict(data: dict[str, any]) -> EntriesType:
         return EntryStartApplication.from_dict(data)
     if _type == EntryType.OpenUrl:
         return EntryOpenUrl.from_dict(data)
+    if _type == EntryType.ShowUrlList:
+        return EntryOpenUrlSubMenu.from_dict(data)
     if _type == EntryType.OpenPdf:
         return EntryOpenPdfSubMenu.from_dict(data)
     if _type == EntryType.I3Command:
