@@ -3,6 +3,12 @@
         {
             "type": "start_app",
             "executable": "okular"
+        },
+        {
+            "type": "open_web",
+            "url": "https://github.com/",
+            "browser": "firefox"
         }
     ]
+
 }
