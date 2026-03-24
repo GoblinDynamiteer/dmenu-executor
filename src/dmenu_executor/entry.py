@@ -19,6 +19,7 @@ WS_LEN = 200
 
 
 class EntryType(StrEnum):
+    Copilot = "copilot"
     I3Command = "i3_command"
     OpenPdf = "open_pdf"
     OpenUrl = "open_web"
@@ -38,6 +39,7 @@ class Key(StrEnum):
     SearchPaths = "search_paths"
     UseTerminal = "use_terminal"
     Cwd = "cwd"
+    Resume = "resume"
     WebBrowserName = "browser"
     Workspace = "workspace"
     WorkspaceInLabel = "include_workspace_in_label"
@@ -176,6 +178,30 @@ class EntryStartApplications(Entry):
                 if entry.entry_id in self._ids:
                     entry.execute()
                     time.sleep(2)
+
+
+class EntryCopilot(EntryStartApplication):
+    @classmethod
+    def from_dict(cls, data: dict) -> EntryCopilot:
+        assert data.get(Key.EntryType, None) == EntryType.Copilot
+        cwd = data.get(Key.Cwd, "")
+        if not cwd:
+            raise TypeError(f"cannot create EntryCopilot from data: {data}, missing 'cwd'")
+        dir_name = Path(cwd).name
+        resume = data.get(Key.Resume, "")
+        args = [f"--resume={resume}"] if resume else None
+        label = data.get(Key.Label, f"copilot | {dir_name}")
+        workspace = data.get(Key.Workspace, f"copilot [{dir_name}]")
+        return cls(
+            app="copilot",
+            use_terminal=True,
+            args=args,
+            label=label,
+            workspace=workspace,
+            add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
+            cwd=cwd,
+            entry_id=data.get(Key.Id, "")
+        )
 
 
 class EntryOpenUrl(Entry):
@@ -418,6 +444,7 @@ class EntryOpenUrlSubMenu(Entry):
 
 EntriesType = Union[EntryStartApplication,
 EntryStartApplications,
+EntryCopilot,
 EntryOpenUrl,
 EntryOpenPdfSubMenu,
 I3CommandEntry,
@@ -430,6 +457,8 @@ def create_entry_from_dict(data: dict[str, Any]) -> EntriesType:
         raise TypeError(f"cannot create Entry from data: {data}, missing 'type'")
     if _type == EntryType.StartApplication:
         return EntryStartApplication.from_dict(data)
+    if _type == EntryType.Copilot:
+        return EntryCopilot.from_dict(data)
     if _type == EntryType.StartApplications:
         return EntryStartApplications.from_dict(data)
     if _type == EntryType.OpenUrl:
