@@ -37,6 +37,7 @@ class Key(StrEnum):
     LabelSuffixUrl = "include_url_in_label"
     SearchPaths = "search_paths"
     UseTerminal = "use_terminal"
+    Cwd = "cwd"
     WebBrowserName = "browser"
     Workspace = "workspace"
     WorkspaceInLabel = "include_workspace_in_label"
@@ -96,10 +97,12 @@ class EntryStartApplication(Entry):
                  label: str = "",
                  add_workspace_to_label: bool = False,
                  workspace: str = "",
-                 entry_id: str = ""):
+                 entry_id: str = "",
+                 cwd: str = ""):
         self._app = app
         self._args = args
         self._use_terminal = use_terminal
+        self._cwd = cwd
         self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug(f"{app=}, {use_terminal=}, {args=}")
@@ -126,7 +129,8 @@ class EntryStartApplication(Entry):
                    label=label,
                    add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
                    workspace=workspace,
-                   entry_id=data.get(Key.Id, "")
+                   entry_id=data.get(Key.Id, ""),
+                   cwd=data.get(Key.Cwd, "")
                    )
 
     def _cmd_with_args(self) -> str:
@@ -140,6 +144,8 @@ class EntryStartApplication(Entry):
                 f"{self._app} does not exist!"
         _cmd = self._cmd_with_args()
         if self._use_terminal:
+            if self._cwd:
+                _cmd = f"cd {self._cwd} && {_cmd}"
             _cmd = f"{self.settings.terminal_shell_start_cmd} \"{_cmd}\""
         self.select_workspace()
         run_exec(_cmd)
