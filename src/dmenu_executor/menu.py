@@ -39,7 +39,7 @@ class Dmenu:
             return
         for e in self._entries:
             if e.text == ret:
-                e.execute()
+                e.execute(self._entries)
                 return
         raise RuntimeError(f"could not find entry for execution: {ret}")
 

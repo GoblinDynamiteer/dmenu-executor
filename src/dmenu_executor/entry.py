@@ -8,7 +8,7 @@ from pathlib import Path
 import time
 
 import concurrent.futures
-from typing import Union
+from typing import Union, Any
 
 from i3man.utils import move_workspaces_to_default_monitor
 
@@ -24,6 +24,7 @@ class EntryType(StrEnum):
     OpenUrl = "open_web"
     ShowUrlList = "web_list"
     StartApplication = "start_app"
+    StartApplications = "start_apps"
 
 
 class Key(StrEnum):
@@ -39,6 +40,8 @@ class Key(StrEnum):
     WebBrowserName = "browser"
     Workspace = "workspace"
     WorkspaceInLabel = "include_workspace_in_label"
+    Entries = "entries"
+    Id = "id"
 
 
 class I3Command(StrEnum):
@@ -70,7 +73,7 @@ class Entry(ABC):
         self._workspace = workspace
 
     @abstractmethod
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         raise NotImplemented("execute is not implemented")
 
     def select_workspace(self) -> None:
@@ -81,7 +84,7 @@ class Entry(ABC):
 
 
 class EntryError(Entry):
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         pass
 
 
@@ -92,10 +95,12 @@ class EntryStartApplication(Entry):
                  args: list[str] | None = None,
                  label: str = "",
                  add_workspace_to_label: bool = False,
-                 workspace: str = ""):
+                 workspace: str = "",
+                 entry_id: str = ""):
         self._app = app
         self._args = args
         self._use_terminal = use_terminal
+        self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug(f"{app=}, {use_terminal=}, {args=}")
         Entry.__init__(self,
@@ -120,14 +125,16 @@ class EntryStartApplication(Entry):
                    args=args,
                    label=label,
                    add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
-                   workspace=workspace)
+                   workspace=workspace,
+                   entry_id=data.get(Key.Id, "")
+                   )
 
     def _cmd_with_args(self) -> str:
         if not self._args:
             return str(self._app)
         return f"{self._app} {' '.join(self._args)}"
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         if isinstance(self._app, Path):
             assert self._app.exists(follow_symlinks=True), \
                 f"{self._app} does not exist!"
@@ -136,6 +143,33 @@ class EntryStartApplication(Entry):
             _cmd = f"{self.settings.terminal_shell_start_cmd} \"{_cmd}\""
         self.select_workspace()
         run_exec(_cmd)
+
+
+class EntryStartApplications(Entry):
+    def __init__(self,
+                 entries: list[str],
+                 label: str = ""):
+        Entry.__init__(self,
+                       f"[apps] {label or ', '.join(entries)}",
+                       )
+        self._ids = entries
+
+    @classmethod
+    def from_dict(cls, data: dict) -> EntryStartApplications:
+        assert data.get(Key.EntryType, None) == EntryType.StartApplications
+        _apps = data.get(Key.Entries)
+        if not _apps:
+            raise TypeError(f"cannot create Entry from data: {data}, "
+                            "missing 'entries'")
+        return cls(entries=_apps,
+                   label=data.get(Key.Label, ""))
+
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
+        for entry in all_entries:
+            if isinstance(entry, EntryStartApplication):
+                if entry.entry_id in self._ids:
+                    entry.execute()
+                    time.sleep(2)
 
 
 class EntryOpenUrl(Entry):
@@ -163,7 +197,7 @@ class EntryOpenUrl(Entry):
                        workspace=workspace,
                        add_workspace_to_label=add_workspace_to_label)
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         if self._browser == "firefox":
             from dmenu_executor.web.utils import open_url_in_firefox_browser
 
@@ -210,7 +244,7 @@ class EntryOpenPdf(Entry):
                        workspace=workspace,
                        add_workspace_to_label=add_workspace_to_label)
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         self.select_workspace()
         run_exec(f"{self._executable} \"{self._path}\"")
 
@@ -267,7 +301,7 @@ class I3CommandEntry(Entry):
 
         Entry.__init__(self, text=f"[i3] {_label}")
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         if self._command == I3Command.MoveWorkspaces:
             move_workspaces_to_default_monitor(defaults=self._data)
             return
@@ -307,7 +341,7 @@ class EntryOpenPdfSubMenu(Entry):
                                            executable)
         Entry.__init__(self, f"[pdf] {_label}")
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         from dmenu_executor import Dmenu
 
         dmenu = Dmenu()
@@ -351,7 +385,7 @@ class EntryOpenUrlSubMenu(Entry):
             )
         Entry.__init__(self, f"[web] {label or 'Open URL'}")
 
-    def execute(self) -> None:
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
         from dmenu_executor import Dmenu
 
         dmenu = Dmenu()
@@ -377,18 +411,21 @@ class EntryOpenUrlSubMenu(Entry):
 
 
 EntriesType = Union[EntryStartApplication,
+EntryStartApplications,
 EntryOpenUrl,
 EntryOpenPdfSubMenu,
 I3CommandEntry,
 EntryOpenUrlSubMenu]
 
 
-def create_entry_from_dict(data: dict[str, any]) -> EntriesType:
+def create_entry_from_dict(data: dict[str, Any]) -> EntriesType:
     _type = data.get(Key.EntryType)
     if not _type:
         raise TypeError(f"cannot create Entry from data: {data}, missing 'type'")
     if _type == EntryType.StartApplication:
         return EntryStartApplication.from_dict(data)
+    if _type == EntryType.StartApplications:
+        return EntryStartApplications.from_dict(data)
     if _type == EntryType.OpenUrl:
         return EntryOpenUrl.from_dict(data)
     if _type == EntryType.ShowUrlList:
