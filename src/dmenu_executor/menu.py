@@ -6,7 +6,7 @@ import json
 
 import dmenu
 
-from dmenu_executor.entry import Entry, create_entry_from_dict, EntryError
+from dmenu_executor.entry import Entry, Key, create_entry_from_dict, EntryError
 from dmenu_executor.settings import Settings
 
 
@@ -69,6 +69,8 @@ class Dmenu:
         else:
             menu = cls()
         for entry in data["entries"]:
+            if not entry.get(Key.Active, True):
+                continue
             try:
                 menu.add_entry(create_entry_from_dict(entry))
             except (ValueError, TypeError, AssertionError) as error:

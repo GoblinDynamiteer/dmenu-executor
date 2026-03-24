@@ -43,6 +43,7 @@ class Key(StrEnum):
     WebBrowserName = "browser"
     Workspace = "workspace"
     WorkspaceInLabel = "include_workspace_in_label"
+    Active = "active"
     Entries = "entries"
     Id = "id"
 

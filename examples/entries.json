@@ -8,6 +8,11 @@
             "type": "open_web",
             "url": "https://github.com/",
             "browser": "firefox"
+        },
+        {
+            "type": "start_app",
+            "executable": "vlc",
+            "active": false
         }
     ]
 
