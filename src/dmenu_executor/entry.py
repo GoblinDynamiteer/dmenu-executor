@@ -46,6 +46,7 @@ class Key(StrEnum):
     Active = "active"
     Entries = "entries"
     Id = "id"
+    Subgroup = "subgroup"
 
 
 class I3Command(StrEnum):
@@ -56,6 +57,7 @@ class I3Command(StrEnum):
 class UrlEntry:
     url: str
     label: str = ""
+    subgroup: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> UrlEntry:
@@ -63,7 +65,7 @@ class UrlEntry:
             raise TypeError(f"cannot create UrlEntry from data: {data}, missing 'url'")
         if not (_label := data.get(Key.Label)):
             _label = data.get("label", "")
-        return cls(url=_url, label=_label)
+        return cls(url=_url, label=_label, subgroup=data.get(Key.Subgroup, ""))
 
 
 class Entry(ABC):
@@ -395,6 +397,23 @@ class EntryOpenPdfSubMenu(Entry):
         )
 
 
+class EntryUrlGroup(Entry):
+    def __init__(self, name: str, entries: list[EntryOpenUrl]):
+        self._name = name
+        self._entries = entries
+        self._logger = logging.getLogger(self.__class__.__name__)
+        Entry.__init__(self, f"[group] {name}")
+
+    def execute(self, all_entries: set[Entry] | None = None) -> None:
+        from dmenu_executor import Dmenu
+
+        dmenu = Dmenu(self.settings)
+        dmenu.settings.prompt = self._name
+        for entry in self._entries:
+            dmenu.add_entry(entry)
+        dmenu.execute()
+
+
 class EntryOpenUrlSubMenu(Entry):
     def __init__(self,
                  urls: list[UrlEntry],
@@ -405,17 +424,22 @@ class EntryOpenUrlSubMenu(Entry):
                  workspace: str = ""):
         self._logger = logging.getLogger(self.__class__.__name__)
         self._entries = []
+        groups: dict[str, list[EntryOpenUrl]] = {}
         for url_entry in urls:
-            self._entries.append(
-                EntryOpenUrl(
-                    url=url_entry.url,
-                    label=url_entry.label,
-                    include_url_in_label=include_url_in_label,
-                    add_workspace_to_label=add_workspace_to_label,
-                    use_browser_name=use_browser_name,
-                    workspace=workspace
-                )
+            open_url = EntryOpenUrl(
+                url=url_entry.url,
+                label=url_entry.label,
+                include_url_in_label=include_url_in_label,
+                add_workspace_to_label=add_workspace_to_label,
+                use_browser_name=use_browser_name,
+                workspace=workspace
             )
+            if url_entry.subgroup:
+                groups.setdefault(url_entry.subgroup, []).append(open_url)
+            else:
+                self._entries.append(open_url)
+        for name, group_entries in groups.items():
+            self._entries.append(EntryUrlGroup(name, group_entries))
         Entry.__init__(self, f"[web] {label or 'Open URL'}")
 
     def execute(self, all_entries: set[Entry] | None = None) -> None:

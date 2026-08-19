@@ -10,6 +10,32 @@
             "browser": "firefox"
         },
         {
+            "type": "web_list",
+            "entry_label": "Links",
+            "browser": "firefox",
+            "urls": [
+                {
+                    "url": "https://github.com/",
+                    "label": "GitHub"
+                },
+                {
+                    "url": "https://recipes.example.com/spaghetti-carbonara",
+                    "label": "Spaghetti Carbonara",
+                    "subgroup": "Food Recipes"
+                },
+                {
+                    "url": "https://recipes.example.com/chicken-tikka-masala",
+                    "label": "Chicken Tikka Masala",
+                    "subgroup": "Food Recipes"
+                },
+                {
+                    "url": "https://recipes.example.com/banana-pancakes",
+                    "label": "Banana Pancakes",
+                    "subgroup": "Food Recipes"
+                }
+            ]
+        },
+        {
             "type": "start_app",
             "executable": "vlc",
             "active": false
