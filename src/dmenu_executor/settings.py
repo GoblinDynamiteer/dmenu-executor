@@ -30,8 +30,10 @@ class Settings:
             color_selected_background=data.get("dmenu_color_selected_background", _default.color_selected_background),
             color_bar_background=data.get("dmenu_color_bar_background", _default.color_bar_background),
             lines=data.get("dmenu_lines", _default.lines),
+            terminal=data.get("terminal", _default.terminal),
             shell=data.get("shell", _default.shell),
             shell_command_arg=data.get("shell_command_arg", _default.shell_command_arg),
+            prompt=data.get("prompt", _default.prompt),
         )
         logging.getLogger(f"{cls.__class__.__name__}.from_dict").debug(
             f"created: {_ret}"

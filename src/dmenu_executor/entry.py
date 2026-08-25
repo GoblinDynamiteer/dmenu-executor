@@ -10,9 +10,11 @@ import time
 import concurrent.futures
 from typing import Union, Any
 
-from i3man.utils import move_workspaces_to_default_monitor
-
-from dmenu_executor.i3.utils import run_exec, select_workspace
+from dmenu_executor.i3.utils import (
+    move_workspaces_to_default_monitor,
+    run_exec,
+    select_workspace,
+)
 from dmenu_executor.settings import Settings
 
 WS_LEN = 200
