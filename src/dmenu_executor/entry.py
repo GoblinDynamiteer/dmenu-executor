@@ -21,6 +21,7 @@ WS_LEN = 200
 
 
 class EntryType(StrEnum):
+    Claude = "claude"
     Copilot = "copilot"
     I3Command = "i3_command"
     OpenPdf = "open_pdf"
@@ -199,6 +200,30 @@ class EntryCopilot(EntryStartApplication):
         workspace = data.get(Key.Workspace, f"copilot [{dir_name}]")
         return cls(
             app="copilot",
+            use_terminal=True,
+            args=args,
+            label=label,
+            workspace=workspace,
+            add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
+            cwd=cwd,
+            entry_id=data.get(Key.Id, "")
+        )
+
+
+class EntryClaude(EntryStartApplication):
+    @classmethod
+    def from_dict(cls, data: dict) -> EntryClaude:
+        assert data.get(Key.EntryType, None) == EntryType.Claude
+        cwd = data.get(Key.Cwd, "")
+        if not cwd:
+            raise TypeError(f"cannot create EntryClaude from data: {data}, missing 'cwd'")
+        dir_name = Path(cwd).name
+        resume = data.get(Key.Resume, "")
+        args = [f"--resume={resume}"] if resume else None
+        label = data.get(Key.Label, f"claude | {dir_name}")
+        workspace = data.get(Key.Workspace, f"claude [{dir_name}]")
+        return cls(
+            app="claude",
             use_terminal=True,
             args=args,
             label=label,
@@ -472,6 +497,7 @@ class EntryOpenUrlSubMenu(Entry):
 EntriesType = Union[EntryStartApplication,
 EntryStartApplications,
 EntryCopilot,
+EntryClaude,
 EntryOpenUrl,
 EntryOpenPdfSubMenu,
 I3CommandEntry,
@@ -486,6 +512,8 @@ def create_entry_from_dict(data: dict[str, Any]) -> EntriesType:
         return EntryStartApplication.from_dict(data)
     if _type == EntryType.Copilot:
         return EntryCopilot.from_dict(data)
+    if _type == EntryType.Claude:
+        return EntryClaude.from_dict(data)
     if _type == EntryType.StartApplications:
         return EntryStartApplications.from_dict(data)
     if _type == EntryType.OpenUrl:
