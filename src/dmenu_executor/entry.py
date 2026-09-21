@@ -11,8 +11,11 @@ import concurrent.futures
 from typing import Union, Any
 
 from dmenu_executor.i3.utils import (
+    DEFAULT_FLOATING_POSITION,
+    DEFAULT_FLOATING_SIZE,
     move_workspaces_to_default_monitor,
     run_exec,
+    run_exec_floating,
     select_workspace,
 )
 from dmenu_executor.settings import Settings
@@ -50,6 +53,10 @@ class Key(StrEnum):
     Entries = "entries"
     Id = "id"
     Subgroup = "subgroup"
+    Floating = "floating"
+    FloatingSize = "floating_size"
+    FloatingPosition = "floating_position"
+    WindowClass = "window_class"
 
 
 class I3Command(StrEnum):
@@ -69,6 +76,17 @@ class UrlEntry:
         if not (_label := data.get(Key.Label)):
             _label = data.get("label", "")
         return cls(url=_url, label=_label, subgroup=data.get(Key.Subgroup, ""))
+
+
+def floating_kwargs(data: dict) -> dict[str, Any]:
+    """Extract the optional floating-window settings from an entry dict."""
+    return {
+        "floating": data.get(Key.Floating, False),
+        "floating_size": data.get(Key.FloatingSize, DEFAULT_FLOATING_SIZE),
+        "floating_position": data.get(Key.FloatingPosition,
+                                      DEFAULT_FLOATING_POSITION),
+        "window_class": data.get(Key.WindowClass, ""),
+    }
 
 
 class Entry(ABC):
@@ -106,14 +124,22 @@ class EntryStartApplication(Entry):
                  add_workspace_to_label: bool = False,
                  workspace: str = "",
                  entry_id: str = "",
-                 cwd: str = ""):
+                 cwd: str = "",
+                 floating: bool = False,
+                 floating_size: str | list[str | int] = DEFAULT_FLOATING_SIZE,
+                 floating_position: str = DEFAULT_FLOATING_POSITION,
+                 window_class: str = ""):
         self._app = app
         self._args = args
         self._use_terminal = use_terminal
         self._cwd = cwd
+        self._floating = floating
+        self._floating_size = floating_size or DEFAULT_FLOATING_SIZE
+        self._floating_position = floating_position or DEFAULT_FLOATING_POSITION
+        self._window_class = window_class
         self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.debug(f"{app=}, {use_terminal=}, {args=}")
+        self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}")
         Entry.__init__(self,
                        f"[app] {label or self._app}",
                        workspace=workspace,
@@ -138,7 +164,8 @@ class EntryStartApplication(Entry):
                    add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
                    workspace=workspace,
                    entry_id=data.get(Key.Id, ""),
-                   cwd=data.get(Key.Cwd, "")
+                   cwd=data.get(Key.Cwd, ""),
+                   **floating_kwargs(data)
                    )
 
     def _cmd_with_args(self) -> str:
@@ -156,6 +183,12 @@ class EntryStartApplication(Entry):
                 _cmd = f"cd {self._cwd} && {_cmd}"
             _cmd = f"{self.settings.terminal_shell_start_cmd} \"{_cmd}\""
         self.select_workspace()
+        if self._floating:
+            run_exec_floating(_cmd,
+                              size=self._floating_size,
+                              position=self._floating_position,
+                              match_class=self._window_class)
+            return
         run_exec(_cmd)
 
 
@@ -206,7 +239,8 @@ class EntryCopilot(EntryStartApplication):
             workspace=workspace,
             add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
             cwd=cwd,
-            entry_id=data.get(Key.Id, "")
+            entry_id=data.get(Key.Id, ""),
+            **floating_kwargs(data)
         )
 
 
@@ -230,7 +264,8 @@ class EntryClaude(EntryStartApplication):
             workspace=workspace,
             add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
             cwd=cwd,
-            entry_id=data.get(Key.Id, "")
+            entry_id=data.get(Key.Id, ""),
+            **floating_kwargs(data)
         )
 
 

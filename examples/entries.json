@@ -5,6 +5,19 @@
             "executable": "okular"
         },
         {
+            "type": "start_app",
+            "entry_label": "nautilus | files | Downloads (floating)",
+            "executable": "nautilus",
+            "executable_args": [
+                "--new-window",
+                "~/Downloads"
+            ],
+            "floating": true,
+            "floating_size": "60%x70%",
+            "floating_position": "center",
+            "window_class": "nautilus"
+        },
+        {
             "type": "open_web",
             "url": "https://github.com/",
             "browser": "firefox"
@@ -41,5 +54,4 @@
             "active": false
         }
     ]
-
 }
