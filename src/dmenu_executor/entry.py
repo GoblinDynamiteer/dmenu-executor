@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
+import shlex
 from abc import ABC, abstractmethod
 from enum import StrEnum
 from pathlib import Path
@@ -21,6 +23,7 @@ from dmenu_executor.i3.utils import (
 from dmenu_executor.settings import Settings
 
 WS_LEN = 200
+ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class EntryType(StrEnum):
@@ -40,6 +43,7 @@ class Key(StrEnum):
     EntryType = "type"
     Executable = "executable"
     ExecutableArguments = "executable_args"
+    Environment = "env"
     Label = "entry_label"
     LabelSuffixUrl = "include_url_in_label"
     SearchPaths = "search_paths"
@@ -89,6 +93,21 @@ def floating_kwargs(data: dict) -> dict[str, Any]:
     }
 
 
+def environment(data: dict) -> dict[str, str]:
+    """Extract the optional environment variables (a name/value object) from an entry dict."""
+    env = data.get(Key.Environment) or {}
+    if not isinstance(env, dict):
+        raise TypeError(f"malformed '{Key.Environment}' in entry: {data}, "
+                        "expected an object of name/value pairs")
+    for name, value in env.items():
+        if not ENV_NAME_PATTERN.fullmatch(name):
+            raise ValueError(f"invalid environment variable name: {name!r}")
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise TypeError(f"environment variable {name} must be a string or a number, "
+                            f"got: {value!r}")
+    return {name: str(value) for name, value in env.items()}
+
+
 class Entry(ABC):
     def __init__(self, text, workspace: str = "", add_workspace_to_label: bool = False):
         if add_workspace_to_label and workspace:
@@ -128,9 +147,11 @@ class EntryStartApplication(Entry):
                  floating: bool = False,
                  floating_size: str | list[str | int] = DEFAULT_FLOATING_SIZE,
                  floating_position: str = DEFAULT_FLOATING_POSITION,
-                 window_class: str = ""):
+                 window_class: str = "",
+                 env: dict[str, str] | None = None):
         self._app = app
         self._args = args
+        self._env = env or {}
         self._use_terminal = use_terminal
         self._cwd = cwd
         self._floating = floating
@@ -139,7 +160,7 @@ class EntryStartApplication(Entry):
         self._window_class = window_class
         self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}")
+        self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}, {env=}")
         Entry.__init__(self,
                        f"[app] {label or self._app}",
                        workspace=workspace,
@@ -165,13 +186,19 @@ class EntryStartApplication(Entry):
                    workspace=workspace,
                    entry_id=data.get(Key.Id, ""),
                    cwd=data.get(Key.Cwd, ""),
+                   env=environment(data),
                    **floating_kwargs(data)
                    )
 
     def _cmd_with_args(self) -> str:
-        if not self._args:
-            return str(self._app)
-        return f"{self._app} {' '.join(self._args)}"
+        _cmd = str(self._app)
+        if self._args:
+            _cmd = f"{_cmd} {' '.join(self._args)}"
+        if self._env:
+            _assignments = " ".join(shlex.quote(f"{name}={value}")
+                                    for name, value in self._env.items())
+            _cmd = f"env {_assignments} {_cmd}"
+        return _cmd
 
     def execute(self, all_entries: set[Entry] | None = None) -> None:
         if isinstance(self._app, Path):
@@ -240,6 +267,7 @@ class EntryCopilot(EntryStartApplication):
             add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
             cwd=cwd,
             entry_id=data.get(Key.Id, ""),
+            env=environment(data),
             **floating_kwargs(data)
         )
 
@@ -265,6 +293,7 @@ class EntryClaude(EntryStartApplication):
             add_workspace_to_label=data.get(Key.WorkspaceInLabel, False),
             cwd=cwd,
             entry_id=data.get(Key.Id, ""),
+            env=environment(data),
             **floating_kwargs(data)
         )
 

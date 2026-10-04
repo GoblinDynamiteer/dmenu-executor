@@ -33,7 +33,8 @@ def run_command(command: str, i3_conn: i3ipc.Connection | None = None) -> bool:
 def run_exec(executable: str | pathlib.Path, i3_conn: i3ipc.Connection | None = None) -> bool:
     logger = logging.getLogger("i3.utils.run_exec")
     logger.debug(f"starting: {executable}")
-    return run_command(f"exec {executable}", i3_conn)
+    # quoted, otherwise i3 ends the command at the first ',' or ';'
+    return run_command(f"exec {_quote_i3_arg(str(executable))}", i3_conn)
 
 
 def select_workspace(

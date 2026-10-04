@@ -2,7 +2,10 @@
     "entries": [
         {
             "type": "start_app",
-            "executable": "okular"
+            "executable": "okular",
+            "env": {
+                "QT_SCALE_FACTOR": "1.5"
+            }
         },
         {
             "type": "start_app",

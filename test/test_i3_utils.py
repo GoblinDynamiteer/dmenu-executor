@@ -6,6 +6,7 @@ from dmenu_executor.i3.utils import (
     floating_window_command,
     move_workspaces_to_default_monitor,
     resolve_floating_size,
+    run_exec,
     window_matches,
 )
 
@@ -76,3 +77,11 @@ def test_window_matches():
     assert window_matches(SimpleNamespace(window_class=None,
                                           window_instance=None,
                                           app_id=None), "nautilus")
+
+
+def test_run_exec_quotes_the_command():
+    conn = FakeI3Connection()
+
+    assert run_exec('env \'X=a,b;c\' app "file name"', conn)
+
+    assert conn.commands == ['exec "env \'X=a,b;c\' app \\"file name\\""']
