@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 import shlex
 from abc import ABC, abstractmethod
@@ -133,6 +134,23 @@ def terminal_below_kwargs(data: dict) -> dict[str, TerminalBelow | None]:
                                             height=height)}
 
 
+def executable_args(data: dict) -> list[str]:
+    """Extract the optional arguments (one list item per argument) from an entry dict."""
+    args = data.get(Key.ExecutableArguments) or []
+    if not isinstance(args, list):
+        raise TypeError(f"malformed '{Key.ExecutableArguments}' in entry: {data}, "
+                        "expected a list of arguments")
+    for arg in args:
+        if isinstance(arg, bool) or not isinstance(arg, (str, int, float)):
+            raise TypeError(f"argument must be a string or a number, got: {arg!r}")
+    return [str(arg) for arg in args]
+
+
+def shell_word(value: str | Path) -> str:
+    """Quote `value` as a single shell word; a leading '~' is expanded (no shell does it then)."""
+    return shlex.quote(os.path.expanduser(str(value)))
+
+
 def environment(data: dict) -> dict[str, str]:
     """Extract the optional environment variables (a name/value object) from an entry dict."""
     env = data.get(Key.Environment) or {}
@@ -218,7 +236,7 @@ class EntryStartApplication(Entry):
             raise TypeError(f"cannot create Entry from data: {data}, "
                             "missing 'executable'")
         use_terminal = data.get(Key.UseTerminal, False)
-        args = data.get(Key.ExecutableArguments, None)
+        args = executable_args(data)
         label = data.get(Key.Label, "")
         workspace = data.get(Key.Workspace, "")
         return cls(_app,
@@ -235,9 +253,7 @@ class EntryStartApplication(Entry):
                    )
 
     def _cmd_with_args(self) -> str:
-        _cmd = str(self._app)
-        if self._args:
-            _cmd = f"{_cmd} {' '.join(self._args)}"
+        _cmd = " ".join(shell_word(word) for word in [self._app, *(self._args or [])])
         if self._env:
             _assignments = " ".join(shlex.quote(f"{name}={value}")
                                     for name, value in self._env.items())
@@ -248,7 +264,7 @@ class EntryStartApplication(Entry):
         _below = self._terminal_below
         _cmd = _below.command or f"exec {self.settings.interactive_shell_cmd}"
         if _cwd := _below.cwd or self._cwd:
-            _cmd = f"cd {_cwd} && {_cmd}"
+            _cmd = f"cd {shell_word(_cwd)} && {_cmd}"
         return f"{self.settings.terminal_shell_start_cmd} {shlex.quote(_cmd)}"
 
     def execute(self, all_entries: set[Entry] | None = None) -> None:
@@ -257,9 +273,9 @@ class EntryStartApplication(Entry):
                 f"{self._app} does not exist!"
         _cmd = self._cmd_with_args()
         if self._cwd:
-            _cmd = f"cd {self._cwd} && {_cmd}"
+            _cmd = f"cd {shell_word(self._cwd)} && {_cmd}"
         if self._use_terminal:
-            _cmd = f"{self.settings.terminal_shell_start_cmd} \"{_cmd}\""
+            _cmd = f"{self.settings.terminal_shell_start_cmd} {shlex.quote(_cmd)}"
         self.select_workspace()
         if self._floating:
             run_exec_floating(_cmd,

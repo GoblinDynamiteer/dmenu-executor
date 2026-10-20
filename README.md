@@ -79,11 +79,12 @@ error menu with the reason instead of the entries.
 | `shell_command_arg`               | `"-c"`           | argument that passes the command to `shell`              |
 | `interactive_shell`               | `$SHELL`         | shell started by `"terminal_below": true`; empty means `$SHELL`, then `shell` |
 
-A terminal command is started as `<terminal> -- <shell> <shell_command_arg> "<command>"`.
+A terminal command is started as `<terminal> -- <shell> <shell_command_arg> '<command>'`.
 
-Commands are run by a shell: i3's `exec`, and inside the terminal `shell`. So shell syntax
-such as `~`, `$VAR` and quoting works in `executable`, `executable_args`, `cwd` and
-`command`.
+`executable`, each item of `executable_args`, and `cwd` are passed exactly as written: one
+item is one argument, spaces and quotes included. A leading `~` is expanded to your home
+directory; other shell syntax (`$VAR`, globs, `;`) is not interpreted. Only
+`terminal_below.command` is a shell command line.
 
 ### Common entry keys
 
@@ -101,8 +102,8 @@ Starts an application.
 
 | key                 | meaning                                                                      |
 |---------------------|------------------------------------------------------------------------------|
-| `executable`        | command to run (required)                                                    |
-| `executable_args`   | list of arguments, joined with spaces and parsed by the shell (`"--port 8080"` is two arguments; quote spaces yourself: `"'my file.txt'"`) |
+| `executable`        | program to run (required), without arguments                                 |
+| `executable_args`   | list of arguments, one item per argument: `["--port", "8080", "my file.txt"]` |
 | `use_terminal`      | run the command inside `terminal`                                            |
 | `cwd`               | directory to `cd` to first                                                   |
 | `env`               | environment variables, e.g. `{"QT_SCALE_FACTOR": "1.5"}`                     |

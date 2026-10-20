@@ -86,7 +86,7 @@ def test_terminal_entry_sets_env_inside_the_terminal(monkeypatch):
 
     entry.execute()
 
-    assert commands == ['gnome-terminal -- bash -c "cd /tmp/project && env FOO=bar claude"']
+    assert commands == ["gnome-terminal -- bash -c 'cd /tmp/project && env FOO=bar claude'"]
 
 
 @pytest.mark.parametrize(
@@ -125,7 +125,7 @@ def test_terminal_below_true_opens_interactive_shell_in_entry_cwd(monkeypatch):
     entry.execute()
 
     assert calls == [(
-        'gnome-terminal -- bash -c "cd /tmp/project && claude"',
+        "gnome-terminal -- bash -c 'cd /tmp/project && claude'",
         {"below": "gnome-terminal -- bash -c 'cd /tmp/project && exec zsh'",
          "height": "",
          "match_class": ""},
@@ -133,6 +133,7 @@ def test_terminal_below_true_opens_interactive_shell_in_entry_cwd(monkeypatch):
 
 
 def test_terminal_below_object_sets_command_cwd_and_height(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/user")
     calls = _record_terminal_below(monkeypatch)
     entry = EntryCopilot.from_dict(
         {"type": "copilot", "cwd": "/tmp/project", "workspace": "",
@@ -143,7 +144,7 @@ def test_terminal_below_object_sets_command_cwd_and_height(monkeypatch):
     entry.execute()
 
     [(_, kwargs)] = calls
-    assert kwargs["below"] == "gnome-terminal -- bash -c 'cd ~/web && make test'"
+    assert kwargs["below"] == "gnome-terminal -- bash -c 'cd /home/user/web && make test'"
     assert kwargs["height"] == "35%"
 
 
@@ -175,7 +176,7 @@ def test_entry_without_terminal_below_runs_single_terminal(monkeypatch):
 
     entry.execute()
 
-    assert commands == ['gnome-terminal -- bash -c "cd /tmp/project && claude"']
+    assert commands == ["gnome-terminal -- bash -c 'cd /tmp/project && claude'"]
 
 
 @pytest.mark.parametrize(
@@ -196,6 +197,7 @@ def test_malformed_terminal_below_is_rejected(extra, error):
 
 
 def test_cwd_is_used_without_terminal(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/user")
     commands = []
     monkeypatch.setattr("dmenu_executor.entry.run_exec", commands.append)
     entry = EntryStartApplication.from_dict(
@@ -206,7 +208,7 @@ def test_cwd_is_used_without_terminal(monkeypatch):
 
     entry.execute()
 
-    assert commands == ["cd ~/project && make run"]
+    assert commands == ["cd /home/user/project && make run"]
 
 
 @pytest.fixture
@@ -275,3 +277,44 @@ def test_pdf_search_path_expands_home(tmp_path, monkeypatch):
     entries = EntryOpenPdf.build_entries(["~/docs"], workspace="", executable="okular")
 
     assert [entry.text for entry in entries] == ["guide.pdf | docs (user guide)"]
+
+
+def test_each_executable_arg_is_one_argument(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/user")
+    commands = []
+    monkeypatch.setattr("dmenu_executor.entry.run_exec", commands.append)
+    args = ["--title", "it's a \"test\"", "~/Downloads", "--path=~/x", "$HOME", "*.txt", 8080]
+    entry = EntryStartApplication.from_dict(
+        {"type": "start_app", "executable": "~/bin/app", "executable_args": args,
+         "cwd": "~/my project", "use_terminal": True}
+    )
+    entry.settings = Settings()
+
+    entry.execute()
+
+    # i3 runs the command with a shell, the terminal with another one: parse both levels
+    [command] = commands
+    *terminal, inner = shlex.split(command)
+    assert terminal == ["gnome-terminal", "--", "bash", "-c"]
+    assert shlex.split(inner) == [
+        "cd", "/home/user/my project", "&&",
+        "/home/user/bin/app", "--title", "it's a \"test\"", "/home/user/Downloads",
+        "--path=~/x", "$HOME", "*.txt", "8080",
+    ]
+
+
+def test_executable_with_safe_words_is_not_quoted():
+    entry = EntryStartApplication.from_dict(
+        {"type": "start_app", "executable": "nautilus",
+         "executable_args": ["--new-window", "/tmp"]}
+    )
+
+    assert entry._cmd_with_args() == "nautilus --new-window /tmp"
+
+
+@pytest.mark.parametrize("args", ["--flag", {"a": "b"}, [True], [["--flag"]]])
+def test_malformed_executable_args_are_rejected(args):
+    with pytest.raises(TypeError):
+        EntryStartApplication.from_dict(
+            {"type": "start_app", "executable": "okular", "executable_args": args}
+        )
