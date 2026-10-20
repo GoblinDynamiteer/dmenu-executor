@@ -12,6 +12,7 @@ from dmenu_executor.i3.workspace import Workspace
 DEFAULT_FLOATING_SIZE = "60%x70%"
 DEFAULT_FLOATING_POSITION = "center"
 DEFAULT_FLOATING_TIMEOUT_S = 5.0
+DEFAULT_WINDOW_TIMEOUT_S = 5.0
 
 
 def is_reply_success(reply: i3ipc.CommandReply | list[i3ipc.CommandReply]) -> bool:
@@ -188,4 +189,98 @@ def run_exec_floating(
     if not handled:
         logger.error(f"no window to float appeared within {timeout_s} s: "
                      f"{match_class or executable}")
+    return handled
+
+
+def split_below_command(con_id: int) -> str:
+    return f"[con_id={con_id}] split vertical"
+
+
+def focus_window_command(con_id: int) -> str:
+    return f"[con_id={con_id}] focus"
+
+
+def terminal_below_resize_command(height: str) -> str:
+    """Resize command for the lower window, `height` is '35%' or pixels ('400', '400px')."""
+    value = str(height).strip().lower()
+    if value.endswith("%"):
+        amount, unit = value.removesuffix("%").strip(), "ppt"
+    else:
+        amount, unit = value.removesuffix("px").strip(), "px"
+    try:
+        number = float(amount)
+    except ValueError:
+        raise ValueError(f"malformed height: {height!r}, "
+                         "expected a percentage ('35%') or pixels ('400')") from None
+    if number <= 0 or (unit == "ppt" and number >= 100):
+        raise ValueError(f"height out of range: {height!r}")
+    return f"resize set height {round(number)} {unit}"
+
+
+def run_exec_with_terminal_below(
+        executable: str | pathlib.Path,
+        below: str | pathlib.Path,
+        height: str = "",
+        match_class: str = "",
+        timeout_s: float = DEFAULT_WINDOW_TIMEOUT_S,
+        i3_conn: i3ipc.Connection | None = None) -> bool:
+    """Start `executable`, then `below` in a vertical split under its window.
+
+    Waits for the window of `executable`, splits it vertically and starts
+    `below`; that second window is resized to `height` (if set) and the
+    focus goes back to the first window. `match_class` selects the first
+    window only, the window below is a terminal of any class.
+    """
+    logger = logging.getLogger("i3.utils.run_exec_with_terminal_below")
+    i3_conn = i3_conn or i3ipc.Connection()
+    resize = terminal_below_resize_command(height) if height else ""
+    top_id: int | None = None
+    handled = False
+    timer: threading.Timer | None = None
+
+    def _restart_timer() -> None:
+        nonlocal timer
+        if timer:
+            timer.cancel()
+        timer = threading.Timer(timeout_s, i3_conn.main_quit)
+        timer.start()
+
+    def _on_window_new(conn: i3ipc.Connection, event) -> None:
+        nonlocal top_id, handled
+        window = event.container
+        if top_id is None:
+            if not window_matches(window, match_class):
+                logger.debug(f"ignoring new window: {window.window_class}")
+                return
+            top_id = window.id
+            logger.debug(f"splitting window {top_id}, starting: {below}")
+            if not (run_command(split_below_command(top_id), conn)
+                    and run_exec(below, conn)):
+                conn.main_quit()
+                return
+            _restart_timer()
+            return
+        if resize:
+            logger.debug(f"resizing window {window.id}: {resize}")
+            is_reply_success(window.command(resize))
+        handled = run_command(focus_window_command(top_id), conn)
+        conn.main_quit()
+
+    i3_conn.on(i3ipc.Event.WINDOW_NEW, _on_window_new)
+    try:
+        if not run_exec(executable, i3_conn):
+            return False
+        _restart_timer()
+        try:
+            i3_conn.main()
+        finally:
+            if timer:
+                timer.cancel()
+    finally:
+        i3_conn.off(_on_window_new)
+    if top_id is None:
+        logger.error(f"no window appeared within {timeout_s} s: "
+                     f"{match_class or executable}")
+    elif not handled:
+        logger.error(f"no window below appeared within {timeout_s} s: {below}")
     return handled

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Self, Any
 
 import logging
+import os
 
 @dataclass
 class Settings:
@@ -15,11 +16,17 @@ class Settings:
     terminal: str = "gnome-terminal"
     shell: str = "bash"
     shell_command_arg: str = "-c"
+    interactive_shell: str = ""
     prompt: str | None = None
 
     @property
     def terminal_shell_start_cmd(self) -> str:
         return f"{self.terminal} -- {self.shell} {self.shell_command_arg}"
+
+    @property
+    def interactive_shell_cmd(self) -> str:
+        """`interactive_shell`, else the user's login shell (`$SHELL`), else `shell`."""
+        return self.interactive_shell or os.environ.get("SHELL") or self.shell
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
@@ -33,6 +40,7 @@ class Settings:
             terminal=data.get("terminal", _default.terminal),
             shell=data.get("shell", _default.shell),
             shell_command_arg=data.get("shell_command_arg", _default.shell_command_arg),
+            interactive_shell=data.get("interactive_shell", _default.interactive_shell),
             prompt=data.get("prompt", _default.prompt),
         )
         logging.getLogger(f"{cls.__class__.__name__}.from_dict").debug(

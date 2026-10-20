@@ -21,6 +21,21 @@
             "window_class": "nautilus"
         },
         {
+            "type": "claude",
+            "cwd": "~/projects/app",
+            "terminal_below": true
+        },
+        {
+            "type": "claude",
+            "entry_label": "claude | app + listing",
+            "cwd": "~/projects/app",
+            "workspace": "claude [app listing]",
+            "terminal_below": {
+                "command": "ls -la; exec $SHELL",
+                "height": "30%"
+            }
+        },
+        {
             "type": "open_web",
             "url": "https://github.com/",
             "browser": "firefox"

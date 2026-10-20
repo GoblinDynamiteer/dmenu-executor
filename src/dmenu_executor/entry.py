@@ -18,7 +18,9 @@ from dmenu_executor.i3.utils import (
     move_workspaces_to_default_monitor,
     run_exec,
     run_exec_floating,
+    run_exec_with_terminal_below,
     select_workspace,
+    terminal_below_resize_command,
 )
 from dmenu_executor.settings import Settings
 
@@ -61,6 +63,8 @@ class Key(StrEnum):
     FloatingSize = "floating_size"
     FloatingPosition = "floating_position"
     WindowClass = "window_class"
+    TerminalBelow = "terminal_below"
+    Height = "height"
 
 
 class I3Command(StrEnum):
@@ -91,6 +95,42 @@ def floating_kwargs(data: dict) -> dict[str, Any]:
                                       DEFAULT_FLOATING_POSITION),
         "window_class": data.get(Key.WindowClass, ""),
     }
+
+
+@dataclasses.dataclass
+class TerminalBelow:
+    """A terminal opened below the entry's window, see `terminal_below_kwargs`."""
+    command: str = ""
+    cwd: str = ""
+    height: str = ""
+
+
+def terminal_below_kwargs(data: dict) -> dict[str, TerminalBelow | None]:
+    """Extract the optional terminal below the app (`true` or an object) from an entry dict."""
+    value = data.get(Key.TerminalBelow)
+    if value is None or value is False:
+        return {"terminal_below": None}
+    if value is True:
+        value = {}
+    if not isinstance(value, dict):
+        raise TypeError(f"malformed '{Key.TerminalBelow}' in entry: {data}, "
+                        "expected true or an object")
+    known = (Key.Command, Key.Cwd, Key.Height)
+    if unknown := [key for key in value if key not in known]:
+        raise ValueError(f"unknown keys in '{Key.TerminalBelow}': {unknown}, "
+                         f"expected: {', '.join(known)}")
+    for key, item in value.items():
+        if not isinstance(item, str):
+            raise TypeError(f"'{Key.TerminalBelow}.{key}' must be a string, got: {item!r}")
+    if data.get(Key.Floating, False):
+        raise ValueError(f"'{Key.TerminalBelow}' cannot be combined with '{Key.Floating}' "
+                         f"in entry: {data}")
+    if height := value.get(Key.Height, ""):
+        # validate only, the i3 command is built on execute
+        terminal_below_resize_command(height)
+    return {"terminal_below": TerminalBelow(command=value.get(Key.Command, ""),
+                                            cwd=value.get(Key.Cwd, ""),
+                                            height=height)}
 
 
 def environment(data: dict) -> dict[str, str]:
@@ -148,7 +188,8 @@ class EntryStartApplication(Entry):
                  floating_size: str | list[str | int] = DEFAULT_FLOATING_SIZE,
                  floating_position: str = DEFAULT_FLOATING_POSITION,
                  window_class: str = "",
-                 env: dict[str, str] | None = None):
+                 env: dict[str, str] | None = None,
+                 terminal_below: TerminalBelow | None = None):
         self._app = app
         self._args = args
         self._env = env or {}
@@ -158,9 +199,11 @@ class EntryStartApplication(Entry):
         self._floating_size = floating_size or DEFAULT_FLOATING_SIZE
         self._floating_position = floating_position or DEFAULT_FLOATING_POSITION
         self._window_class = window_class
+        self._terminal_below = terminal_below
         self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
-        self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}, {env=}")
+        self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}, {env=}, "
+                           f"{terminal_below=}")
         Entry.__init__(self,
                        f"[app] {label or self._app}",
                        workspace=workspace,
@@ -187,7 +230,8 @@ class EntryStartApplication(Entry):
                    entry_id=data.get(Key.Id, ""),
                    cwd=data.get(Key.Cwd, ""),
                    env=environment(data),
-                   **floating_kwargs(data)
+                   **floating_kwargs(data),
+                   **terminal_below_kwargs(data)
                    )
 
     def _cmd_with_args(self) -> str:
@@ -199,6 +243,13 @@ class EntryStartApplication(Entry):
                                     for name, value in self._env.items())
             _cmd = f"env {_assignments} {_cmd}"
         return _cmd
+
+    def _terminal_below_cmd(self) -> str:
+        _below = self._terminal_below
+        _cmd = _below.command or f"exec {self.settings.interactive_shell_cmd}"
+        if _cwd := _below.cwd or self._cwd:
+            _cmd = f"cd {_cwd} && {_cmd}"
+        return f"{self.settings.terminal_shell_start_cmd} {shlex.quote(_cmd)}"
 
     def execute(self, all_entries: set[Entry] | None = None) -> None:
         if isinstance(self._app, Path):
@@ -215,6 +266,12 @@ class EntryStartApplication(Entry):
                               size=self._floating_size,
                               position=self._floating_position,
                               match_class=self._window_class)
+            return
+        if self._terminal_below:
+            run_exec_with_terminal_below(_cmd,
+                                         below=self._terminal_below_cmd(),
+                                         height=self._terminal_below.height,
+                                         match_class=self._window_class)
             return
         run_exec(_cmd)
 
@@ -268,7 +325,8 @@ class EntryCopilot(EntryStartApplication):
             cwd=cwd,
             entry_id=data.get(Key.Id, ""),
             env=environment(data),
-            **floating_kwargs(data)
+            **floating_kwargs(data),
+            **terminal_below_kwargs(data)
         )
 
 
@@ -294,7 +352,8 @@ class EntryClaude(EntryStartApplication):
             cwd=cwd,
             entry_id=data.get(Key.Id, ""),
             env=environment(data),
-            **floating_kwargs(data)
+            **floating_kwargs(data),
+            **terminal_below_kwargs(data)
         )
 
 
