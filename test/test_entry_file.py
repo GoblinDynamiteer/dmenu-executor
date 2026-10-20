@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from dmenu_executor.entry import EntryClaude, EntryCopilot, EntryStartApplication
+from dmenu_executor.entry import (
+    EntryClaude,
+    EntryCopilot,
+    EntryOpenPdf,
+    EntryOpenUrl,
+    EntryOpenUrlSubMenu,
+    EntryStartApplication,
+)
 from dmenu_executor.menu import Dmenu
 from dmenu_executor.settings import Settings
 
@@ -186,3 +193,85 @@ def test_entry_without_terminal_below_runs_single_terminal(monkeypatch):
 def test_malformed_terminal_below_is_rejected(extra, error):
     with pytest.raises(error):
         EntryClaude.from_dict({"type": "claude", "cwd": "/tmp/project", **extra})
+
+
+def test_cwd_is_used_without_terminal(monkeypatch):
+    commands = []
+    monkeypatch.setattr("dmenu_executor.entry.run_exec", commands.append)
+    entry = EntryStartApplication.from_dict(
+        {"type": "start_app", "executable": "make", "executable_args": ["run"],
+         "cwd": "~/project"}
+    )
+    entry.settings = Settings()
+
+    entry.execute()
+
+    assert commands == ["cd ~/project && make run"]
+
+
+@pytest.fixture
+def opened_urls(monkeypatch):
+    opened = []
+    monkeypatch.setattr("dmenu_executor.web.utils.subprocess.Popen",
+                        lambda args: opened.append(("command", args)))
+    monkeypatch.setattr("dmenu_executor.web.utils.webbrowser.open_new_tab",
+                        lambda url: opened.append(("default", url)))
+    monkeypatch.setattr("dmenu_executor.web.utils.select_workspace",
+                        lambda workspace: opened.append(("workspace", workspace)))
+    return opened
+
+
+@pytest.mark.parametrize(
+    "browser, expected",
+    [
+        (None, ("default", "https://example.com/")),
+        ("firefox", ("command", ["firefox", "--new-tab", "https://example.com/"])),
+        ("chromium --new-window",
+         ("command", ["chromium", "--new-window", "https://example.com/"])),
+    ],
+)
+def test_open_web_browser(opened_urls, browser, expected):
+    data = {"type": "open_web", "url": "https://example.com/", "workspace": "web"}
+    if browser is not None:
+        data["browser"] = browser
+
+    EntryOpenUrl.from_dict(data).execute()
+
+    assert opened_urls == [expected, ("workspace", "web")]
+
+
+def test_web_list_without_browser_uses_default_browser(opened_urls):
+    menu = EntryOpenUrlSubMenu.from_dict(
+        {"type": "web_list", "urls": [{"url": "https://example.com/"}]}
+    )
+
+    [entry] = menu._entries
+    entry.execute()
+
+    assert opened_urls == [("default", "https://example.com/")]
+
+
+def test_open_web_rejects_non_string_browser():
+    with pytest.raises(TypeError):
+        EntryOpenUrl.from_dict({"type": "open_web", "url": "https://example.com/",
+                                "browser": ["firefox"]})
+
+
+def test_pdf_label_outside_home_uses_absolute_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    pdf = tmp_path / "manuals" / "guide.pdf"
+
+    entry = EntryOpenPdf(pdf_path=pdf, executable="okular")
+
+    assert entry.text == f"guide.pdf | {tmp_path / 'manuals'}"
+
+
+def test_pdf_search_path_expands_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "guide.pdf").touch()
+    (tmp_path / "docs" / "guide.nfo").write_text("user guide\n")
+
+    entries = EntryOpenPdf.build_entries(["~/docs"], workspace="", executable="okular")
+
+    assert [entry.text for entry in entries] == ["guide.pdf | docs (user guide)"]

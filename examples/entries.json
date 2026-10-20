@@ -37,8 +37,7 @@
         },
         {
             "type": "open_web",
-            "url": "https://github.com/",
-            "browser": "firefox"
+            "url": "https://github.com/"
         },
         {
             "type": "web_list",

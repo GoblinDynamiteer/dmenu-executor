@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import webbrowser
 
@@ -12,7 +13,8 @@ def open_url_in_browser(
     if use_webbrowser_lib:
         webbrowser.open_new_tab(url)
     elif subprocess_command:
-        subprocess.call(f"{subprocess_command} {url}".split())
+        # not waiting: a browser that was not running yet would block until it is closed
+        subprocess.Popen([*shlex.split(subprocess_command), url])
     else:
         raise ValueError(f"Need either arg {use_webbrowser_lib=} or {subprocess_command=}")
     if workspace:

@@ -256,9 +256,9 @@ class EntryStartApplication(Entry):
             assert self._app.exists(follow_symlinks=True), \
                 f"{self._app} does not exist!"
         _cmd = self._cmd_with_args()
+        if self._cwd:
+            _cmd = f"cd {self._cwd} && {_cmd}"
         if self._use_terminal:
-            if self._cwd:
-                _cmd = f"cd {self._cwd} && {_cmd}"
             _cmd = f"{self.settings.terminal_shell_start_cmd} \"{_cmd}\""
         self.select_workspace()
         if self._floating:
@@ -366,8 +366,10 @@ class EntryOpenUrl(Entry):
                  label: str = "",
                  workspace: str = ""):
         self._url = url
-        if use_browser_name != "firefox":
-            raise ValueError("Can currently only handle browser 'firefox'")
+        if not isinstance(use_browser_name, str):
+            raise TypeError(f"'{Key.WebBrowserName}' must be a command line string, "
+                            f"got: {use_browser_name!r}")
+        # "" = the system's default browser, otherwise a command the URL is appended to
         self._browser: str = use_browser_name
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug(f"{url=}")
@@ -387,6 +389,14 @@ class EntryOpenUrl(Entry):
             from dmenu_executor.web.utils import open_url_in_firefox_browser
 
             open_url_in_firefox_browser(self._url, workspace=self._workspace)
+
+        elif self._browser:
+            from dmenu_executor.web.utils import open_url_in_browser
+
+            open_url_in_browser(self._url,
+                                use_webbrowser_lib=False,
+                                subprocess_command=self._browser,
+                                workspace=self._workspace)
 
         else:
             from dmenu_executor.web.utils import open_url_in_browser
@@ -417,7 +427,10 @@ class EntryOpenPdf(Entry):
                  add_workspace_to_label: bool = False,
                  nfo: str = ""):
 
-        _loc = pdf_path.parent.relative_to(Path.home())
+        try:
+            _loc = pdf_path.parent.relative_to(Path.home())
+        except ValueError:
+            _loc = pdf_path.parent
         if nfo:
             _label = f"{pdf_path.name} | {_loc} ({nfo})"
         else:
@@ -444,7 +457,7 @@ class EntryOpenPdf(Entry):
         start = time.time()
         for _path in paths:
             logger.debug(f"globbing {_path}...")
-            items: list[Path] = list(Path(_path).rglob("*.pdf"))
+            items: list[Path] = list(Path(_path).expanduser().rglob("*.pdf"))
             logger.debug(f"found {len(items)} matches")
             for item in items:
                 nfo_file = item.with_suffix(".nfo")
