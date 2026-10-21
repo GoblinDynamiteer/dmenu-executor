@@ -21,6 +21,23 @@
             "window_class": "nautilus"
         },
         {
+            "type": "start_app",
+            "entry_label": "code | open directory ...",
+            "executable": "code",
+            "executable_args": [
+                "--new-window",
+                "{input}"
+            ],
+            "input": {
+                "prompt": "Directory:",
+                "check": "dir",
+                "items": [
+                    "~/projects/app",
+                    "~/projects/web"
+                ]
+            }
+        },
+        {
             "type": "claude",
             "cwd": "~/projects/app",
             "terminal_below": true

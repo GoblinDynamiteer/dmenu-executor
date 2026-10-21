@@ -9,6 +9,7 @@ import dmenu
 from dmenu_executor.entry import Entry, Key, create_entry_from_dict, EntryError
 from dmenu_executor.settings import Settings
 
+PASTE_HINT = "(ctrl+y to paste)"
 
 
 class Dmenu:
@@ -24,17 +25,30 @@ class Dmenu:
     def set_prompt(self, prompt_text: str) -> None:
         self.settings.prompt = prompt_text
 
+    def _show(self, items: list[str], prompt: str | None, lines: int) -> str | None:
+        return self._dmenu.show(items,
+                                case_insensitive=self.settings.case_insensitive,
+                                background=self.settings.color_bar_background,
+                                foreground=self.settings.color_selected_foreground,
+                                background_selected=self.settings.color_selected_background,
+                                foreground_selected=self.settings.color_selected_foreground,
+                                lines=lines,
+                                prompt=prompt)
+
+    def ask(self, prompt: str, items: list[str] | None = None) -> str | None:
+        """Ask for free text (`items` are suggestions); None on Escape or empty input."""
+        items = items or []
+        # dmenu has no ctrl+v (or mouse), ctrl+y pastes the primary selection
+        prompt = f"{prompt} {PASTE_HINT}"
+        # no items: a single-line bar instead of an empty list
+        return self._show(items, prompt, lines=min(self.settings.lines, len(items))) or None
+
     def execute(self) -> None:
         if not self._entries:
             raise ValueError("no entries added")
-        ret = self._dmenu.show(sorted({e.text for e in self._entries}),
-                               case_insensitive=self.settings.case_insensitive,
-                               background=self.settings.color_bar_background,
-                               foreground=self.settings.color_selected_foreground,
-                               background_selected=self.settings.color_selected_background,
-                               foreground_selected=self.settings.color_selected_foreground,
-                               lines=self.settings.lines,
-                               prompt=self.settings.prompt)
+        ret = self._show(sorted({e.text for e in self._entries}),
+                         prompt=self.settings.prompt,
+                         lines=self.settings.lines)
         if not ret:
             return
         for e in self._entries:

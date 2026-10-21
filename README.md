@@ -113,6 +113,7 @@ Starts an application.
 | `floating_position` | i3 `move position` argument (default `"center"`)                             |
 | `window_class`      | only handle a new window whose class/instance contains this (case-insensitive) |
 | `terminal_below`    | open a second terminal below the window, see below                          |
+| `input`             | ask for a value in dmenu first and use it as `{input}`, see below            |
 
 #### `terminal_below`
 
@@ -137,6 +138,34 @@ The terminal closes when `command` exits. To keep a shell open afterwards, end w
 Applications that only raise an already-running instance open no new window, so nothing is
 split.
 
+#### `input`
+
+Asks for a value in a second dmenu when the entry is selected, then replaces `{input}` with it
+in each item of `executable_args` and in `cwd` (also inside a word: `"--project={input}"`).
+An argument stays one argument, so spaces in the value are fine. `{input}` must appear in at
+least one of them. Every key is optional:
+
+| key      | default    | meaning                                                                 |
+|----------|------------|-------------------------------------------------------------------------|
+| `prompt` | `"Input:"` | dmenu prompt, followed by `(ctrl+y to paste)`                           |
+| `check`  | `"none"`   | `"none"`: use the text as typed; `"exists"`, `"dir"`, `"file"`: the text is a path that must exist (and be a directory/file) |
+| `items`  | none       | list of suggestions; any other text can still be typed                  |
+
+```json
+{"type": "start_app", "entry_label": "code | open directory ...",
+ "executable": "code", "executable_args": ["--new-window", "{input}"],
+ "input": {"prompt": "Directory:", "check": "dir", "items": ["~/projects/app"]}}
+```
+
+With a `check`, a leading `~` is expanded, a relative path is relative to the entry's `cwd`
+(the home directory if `cwd` is not set or contains `{input}`), and the absolute path is
+used. Escape or empty input starts nothing; a failed check shows the reason in the red error
+menu.
+
+The prompt ends with a reminder, `(ctrl+y to paste)`: **Ctrl+Y** pastes the primary selection
+(the text last highlighted with the mouse), **Ctrl+Shift+Y** the clipboard. dmenu has no Ctrl+V and, without patches, no
+mouse support, so middle-click does not paste either.
+
 ### `claude` / `copilot`
 
 Starts [Claude Code](https://claude.com/claude-code) (`claude`) or GitHub Copilot CLI
@@ -148,7 +177,8 @@ Starts [Claude Code](https://claude.com/claude-code) (`claude`) or GitHub Copilo
 | `resume` | session to resume (`--resume=<session>`)                                |
 
 The label defaults to `claude | <dir>` and the workspace to `claude [<dir>]` (`copilot` the
-same). `env`, `id`, `floating*`, `window_class` and `terminal_below` work as for `start_app`.
+same). `env`, `id`, `floating*`, `window_class` and `terminal_below` work as for `start_app`;
+`input` is not supported.
 
 ### `start_apps`
 

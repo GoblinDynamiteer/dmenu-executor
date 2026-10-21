@@ -11,6 +11,7 @@ from pathlib import Path
 import time
 
 import concurrent.futures
+import copy
 from typing import Union, Any
 
 from dmenu_executor.i3.utils import (
@@ -27,6 +28,7 @@ from dmenu_executor.settings import Settings
 
 WS_LEN = 200
 ENV_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+INPUT_PLACEHOLDER = "{input}"
 
 
 class EntryType(StrEnum):
@@ -66,10 +68,21 @@ class Key(StrEnum):
     WindowClass = "window_class"
     TerminalBelow = "terminal_below"
     Height = "height"
+    Input = "input"
+    Prompt = "prompt"
+    Check = "check"
+    Items = "items"
 
 
 class I3Command(StrEnum):
     MoveWorkspaces = "move_workspaces"
+
+
+class InputCheck(StrEnum):
+    NoCheck = "none"
+    Exists = "exists"
+    Dir = "dir"
+    File = "file"
 
 
 @dataclasses.dataclass
@@ -132,6 +145,68 @@ def terminal_below_kwargs(data: dict) -> dict[str, TerminalBelow | None]:
     return {"terminal_below": TerminalBelow(command=value.get(Key.Command, ""),
                                             cwd=value.get(Key.Cwd, ""),
                                             height=height)}
+
+
+@dataclasses.dataclass
+class InputPrompt:
+    """A value asked for in dmenu before the entry starts, see `input_kwargs`."""
+    prompt: str = "Input:"
+    check: InputCheck = InputCheck.NoCheck
+    items: list[str] = dataclasses.field(default_factory=list)
+
+
+def input_kwargs(data: dict) -> dict[str, InputPrompt | None]:
+    """Extract the optional input prompt (an object) from an entry dict.
+
+    `{input}` must appear in `executable_args` or `cwd`, where the value is substituted."""
+    value = data.get(Key.Input)
+    if value is None:
+        return {"input_prompt": None}
+    if not isinstance(value, dict):
+        raise TypeError(f"malformed '{Key.Input}' in entry: {data}, expected an object")
+    known = (Key.Prompt, Key.Check, Key.Items)
+    if unknown := [key for key in value if key not in known]:
+        raise ValueError(f"unknown keys in '{Key.Input}': {unknown}, "
+                         f"expected: {', '.join(known)}")
+    prompt = value.get(Key.Prompt, InputPrompt.prompt)
+    if not isinstance(prompt, str):
+        raise TypeError(f"'{Key.Input}.{Key.Prompt}' must be a string, got: {prompt!r}")
+    check = value.get(Key.Check, InputCheck.NoCheck)
+    if check not in list(InputCheck):
+        raise ValueError(f"invalid '{Key.Input}.{Key.Check}': {check!r}, "
+                         f"expected: {', '.join(InputCheck)}")
+    items = value.get(Key.Items) or []
+    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
+        raise TypeError(f"'{Key.Input}.{Key.Items}' must be a list of strings, got: {items!r}")
+    targets = [*executable_args(data), data.get(Key.Cwd, "")]
+    if not any(INPUT_PLACEHOLDER in target for target in targets):
+        raise ValueError(f"'{Key.Input}' needs '{INPUT_PLACEHOLDER}' in "
+                         f"'{Key.ExecutableArguments}' or '{Key.Cwd}' in entry: {data}")
+    return {"input_prompt": InputPrompt(prompt=prompt, check=InputCheck(check), items=items)}
+
+
+def resolve_input(value: str, check: InputCheck, base_dir: str = "") -> str:
+    """Return the entered `value`, as an absolute path if it is checked.
+
+    A relative path is relative to `base_dir` (default: the home directory).
+    Raises ValueError with the reason if the check fails."""
+    if check == InputCheck.NoCheck:
+        return value
+    path = os.path.join(os.path.expanduser(base_dir or "~"), os.path.expanduser(value))
+    path = os.path.abspath(path)
+    if check == InputCheck.Exists and not os.path.exists(path):
+        raise ValueError(f"does not exist: {path}")
+    if check == InputCheck.Dir and not os.path.isdir(path):
+        raise ValueError(f"not a directory: {path}")
+    if check == InputCheck.File and not os.path.isfile(path):
+        raise ValueError(f"not a file: {path}")
+    return path
+
+
+def substitute_input(args: list[str] | None, cwd: str, value: str) -> tuple[list[str], str]:
+    """Replace `{input}` with `value` in every argument and in `cwd` (new list, nothing changed)."""
+    return ([arg.replace(INPUT_PLACEHOLDER, value) for arg in args or []],
+            cwd.replace(INPUT_PLACEHOLDER, value))
 
 
 def executable_args(data: dict) -> list[str]:
@@ -207,7 +282,8 @@ class EntryStartApplication(Entry):
                  floating_position: str = DEFAULT_FLOATING_POSITION,
                  window_class: str = "",
                  env: dict[str, str] | None = None,
-                 terminal_below: TerminalBelow | None = None):
+                 terminal_below: TerminalBelow | None = None,
+                 input_prompt: InputPrompt | None = None):
         self._app = app
         self._args = args
         self._env = env or {}
@@ -218,10 +294,11 @@ class EntryStartApplication(Entry):
         self._floating_position = floating_position or DEFAULT_FLOATING_POSITION
         self._window_class = window_class
         self._terminal_below = terminal_below
+        self._input = input_prompt
         self.entry_id = entry_id
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.debug(f"{app=}, {use_terminal=}, {args=}, {floating=}, {env=}, "
-                           f"{terminal_below=}")
+                           f"{terminal_below=}, {input_prompt=}")
         Entry.__init__(self,
                        f"[app] {label or self._app}",
                        workspace=workspace,
@@ -249,7 +326,8 @@ class EntryStartApplication(Entry):
                    cwd=data.get(Key.Cwd, ""),
                    env=environment(data),
                    **floating_kwargs(data),
-                   **terminal_below_kwargs(data)
+                   **terminal_below_kwargs(data),
+                   **input_kwargs(data)
                    )
 
     def _cmd_with_args(self) -> str:
@@ -267,7 +345,30 @@ class EntryStartApplication(Entry):
             _cmd = f"cd {shell_word(_cwd)} && {_cmd}"
         return f"{self.settings.terminal_shell_start_cmd} {shlex.quote(_cmd)}"
 
+    def _with_input(self) -> EntryStartApplication | None:
+        """Ask for the input value; a copy of this entry with it substituted, None if cancelled."""
+        from dmenu_executor import Dmenu
+
+        value = Dmenu(self.settings).ask(self._input.prompt, self._input.items)
+        if not value:
+            return None
+        base_dir = "" if INPUT_PLACEHOLDER in self._cwd else self._cwd
+        try:
+            value = resolve_input(value, self._input.check, base_dir)
+        except ValueError as error:
+            Dmenu.create_menu_with_errors(str(error)).execute()
+            return None
+        entry = copy.copy(self)
+        entry._args, entry._cwd = substitute_input(self._args, self._cwd, value)
+        return entry
+
     def execute(self, all_entries: set[Entry] | None = None) -> None:
+        if not self._input:
+            self._start()
+        elif entry := self._with_input():
+            entry._start()
+
+    def _start(self) -> None:
         if isinstance(self._app, Path):
             assert self._app.exists(follow_symlinks=True), \
                 f"{self._app} does not exist!"
@@ -326,6 +427,9 @@ class EntryCopilot(EntryStartApplication):
         cwd = data.get(Key.Cwd, "")
         if not cwd:
             raise TypeError(f"cannot create EntryCopilot from data: {data}, missing 'cwd'")
+        if Key.Input in data:
+            raise ValueError(f"'{Key.Input}' is not supported for '{EntryType.Copilot}' "
+                             f"entries: {data}")
         dir_name = Path(cwd).name
         resume = data.get(Key.Resume, "")
         args = [f"--resume={resume}"] if resume else None
@@ -353,6 +457,9 @@ class EntryClaude(EntryStartApplication):
         cwd = data.get(Key.Cwd, "")
         if not cwd:
             raise TypeError(f"cannot create EntryClaude from data: {data}, missing 'cwd'")
+        if Key.Input in data:
+            raise ValueError(f"'{Key.Input}' is not supported for '{EntryType.Claude}' "
+                             f"entries: {data}")
         dir_name = Path(cwd).name
         resume = data.get(Key.Resume, "")
         args = [f"--resume={resume}"] if resume else None
